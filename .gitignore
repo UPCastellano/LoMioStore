@@ -1,0 +1,23 @@
+# Secretos y variables de entorno (solo se versionan los .env.example)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencias y builds
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Imágenes subidas localmente
+Backend/uploads/
+
+# Logs y editor
+logs/
+*.log
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
