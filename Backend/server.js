@@ -891,6 +891,78 @@ app.patch('/api/orders/:id/status', requireAdmin, async (req, res) => {
   }
 });
 
+// Borra un pedido (id) o todos (sin id). Los pendientes devuelven su stock reservado.
+async function deleteOrders(id, range = {}) {
+  const start = range.from || '0001-01-01';
+  const end = range.to || '9999-12-31';
+  const all = id === undefined;
+  if (!pool) {
+    const targets = memoryOrders.filter(entry => all ? (entry.date >= start && entry.date <= end) : Number(entry.id) === Number(id));
+    if (!targets.length && !all) return { error: 'Pedido no encontrado.', status: 404 };
+    for (const order of targets) {
+      if (order.status !== 'pending') continue;
+      for (const line of order.items) {
+        const product = memoryProducts.find(entry => Number(entry.id) === Number(line.productId));
+        if (product) product.stock = Number(product.stock) + Number(line.quantity);
+      }
+    }
+    for (const order of targets) memoryOrders.splice(memoryOrders.indexOf(order), 1);
+    return { deleted: targets.length };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: orders } = all
+      ? await client.query('SELECT id, status FROM orders WHERE created_at::date BETWEEN $1::date AND $2::date FOR UPDATE', [start, end])
+      : await client.query('SELECT id, status FROM orders WHERE id = $1 FOR UPDATE', [id]);
+    if (!orders.length && !all) {
+      await client.query('ROLLBACK');
+      return { error: 'Pedido no encontrado.', status: 404 };
+    }
+    const pendingIds = orders.filter(order => order.status === 'pending').map(order => order.id);
+    if (pendingIds.length) {
+      await client.query(`
+        UPDATE products p SET stock = p.stock + r.qty
+        FROM (SELECT product_id, SUM(quantity) AS qty FROM order_items
+              WHERE order_id = ANY($1) AND product_id IS NOT NULL GROUP BY product_id) r
+        WHERE p.id = r.product_id
+      `, [pendingIds]);
+    }
+    if (orders.length) await client.query('DELETE FROM orders WHERE id = ANY($1)', [orders.map(order => order.id)]);
+    await client.query('COMMIT');
+    return { deleted: orders.length };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+app.delete('/api/orders', requireAdmin, async (req, res) => {
+  const isDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+  const { from, to } = req.query;
+  if ((from && !isDate(from)) || (to && !isDate(to))) return res.status(400).json({ error: 'Fechas no válidas.' });
+  if (from && to && from > to) return res.status(400).json({ error: 'La fecha inicial debe ser anterior a la final.' });
+  try {
+    res.json(await deleteOrders(undefined, { from, to }));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/orders/:id', requireAdmin, async (req, res) => {
+  if (!Number.isInteger(Number(req.params.id))) return res.status(400).json({ error: 'Pedido no válido.' });
+  try {
+    const result = await deleteOrders(Number(req.params.id));
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/admin/login', (req, res) => {
   const { username, password } = req.body || {};
   if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) {
@@ -908,6 +980,34 @@ app.get('/api/admin/session', requireAdmin, (_req, res) => res.json({ authentica
 app.get('/api/sales', requireAdmin, async (_req, res) => {
   try {
     res.json(await getSales());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Sin from/to borra todo el historial; con fechas (YYYY-MM-DD) borra ese rango inclusivo.
+async function deleteSales(from, to) {
+  const all = !from && !to;
+  const start = from || '0001-01-01';
+  const end = to || '9999-12-31';
+  if (!pool) {
+    const before = memorySales.length;
+    memorySales = memorySales.filter(sale => !(all || (sale.date >= start && sale.date <= end)));
+    return { deleted: before - memorySales.length };
+  }
+  const result = all
+    ? await pool.query('DELETE FROM sales')
+    : await pool.query('DELETE FROM sales WHERE created_at::date BETWEEN $1::date AND $2::date', [start, end]);
+  return { deleted: result.rowCount };
+}
+
+app.delete('/api/sales', requireAdmin, async (req, res) => {
+  const isDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+  const { from, to } = req.query;
+  if ((from && !isDate(from)) || (to && !isDate(to))) return res.status(400).json({ error: 'Fechas no válidas.' });
+  if (from && to && from > to) return res.status(400).json({ error: 'La fecha inicial debe ser anterior a la final.' });
+  try {
+    res.json(await deleteSales(from, to));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

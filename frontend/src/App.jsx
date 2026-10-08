@@ -424,6 +424,59 @@ function App() {
     }
   };
 
+  const [salesRange, setSalesRange] = useState({ from: '', to: '' });
+
+  const deleteSales = async (all) => {
+    const { from, to } = salesRange;
+    if (!all && !from && !to) { setError('Elige al menos una fecha para eliminar por rango.'); return; }
+    const label = all ? 'TODO el historial de ventas' : `las ventas ${from && to ? (from === to ? `del ${from}` : `del ${from} al ${to}`) : from ? `desde el ${from}` : `hasta el ${to}`}`;
+    if (!window.confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) return;
+    setError('');
+    try {
+      const query = all ? '' : `?${new URLSearchParams({ ...(from && { from }), ...(to && { to }) })}`;
+      const result = await request(`/api/sales${query}`, { method: 'DELETE' }, token);
+      setSales(await request('/api/sales', {}, token));
+      setNotice(result.deleted ? `${result.deleted} venta(s) eliminada(s).` : 'No había ventas en ese rango.');
+    } catch (salesError) {
+      setError(salesError.message);
+    }
+  };
+  const refreshAfterOrderDelete = async () => {
+    const [updatedOrders, updatedProducts] = await Promise.all([request('/api/orders', {}, token), request('/api/products')]);
+    setOrders(Array.isArray(updatedOrders) ? updatedOrders.map(normalizeOrder) : []);
+    setProducts(updatedProducts.map((product) => ({ ...product, price: Number(product.price), stock: Number(product.stock || 0), sold: Number(product.sold || 0) })));
+  };
+
+  const deleteOrder = async (order) => {
+    const warning = order.status === 'pending' ? ' Las existencias reservadas volverán al inventario.' : '';
+    if (!window.confirm(`¿Eliminar el pedido ${order.orderNumber}?${warning}`)) return;
+    setError('');
+    try {
+      await request(`/api/orders/${order.id}`, { method: 'DELETE' }, token);
+      await refreshAfterOrderDelete();
+      setNotice('Pedido eliminado.');
+    } catch (orderError) {
+      setError(orderError.message);
+    }
+  };
+
+  const [ordersRange, setOrdersRange] = useState({ from: '', to: '' });
+
+  const clearOrders = async (all) => {
+    const { from, to } = ordersRange;
+    if (!all && !from && !to) { setError('Elige al menos una fecha para eliminar por rango.'); return; }
+    const label = all ? 'TODOS los pedidos' : `los pedidos ${from && to ? (from === to ? `del ${from}` : `del ${from} al ${to}`) : from ? `desde el ${from}` : `hasta el ${to}`}`;
+    if (!window.confirm(`¿Eliminar ${label}? Los pendientes devolverán sus existencias. Esta acción no se puede deshacer.`)) return;
+    setError('');
+    try {
+      const query = all ? '' : `?${new URLSearchParams({ ...(from && { from }), ...(to && { to }) })}`;
+      const result = await request(`/api/orders${query}`, { method: 'DELETE' }, token);
+      await refreshAfterOrderDelete();
+      setNotice(result.deleted ? `${result.deleted} pedido(s) eliminado(s).` : 'No había pedidos en ese rango.');
+    } catch (orderError) {
+      setError(orderError.message);
+    }
+  };
   const registerSale = async (event) => {
     event.preventDefault();
     setError('');
@@ -604,14 +657,14 @@ function App() {
             </>}
 
             {section === 'orders' && <>
-              <div className="section-heading"><div><span className="eyebrow">VENTA EN LÍNEA</span><h1>Pedidos</h1><p>Consulta los datos del cliente y el estado de cada pedido.</p></div><div className="sales-total"><span>PENDIENTES DE PAGO</span><strong>{orders.filter((order) => order.status === 'pending').length}</strong></div></div>
-              {orders.length ? <div className="order-list">{orders.map((order) => <article className="admin-order" key={order.id}><header className="admin-order-heading"><div><span className="eyebrow">{order.orderNumber}</span><h2>{order.name}</h2><small>{order.date} · {order.email} · {order.phone}</small><small>Pago: {paymentMethodLabels[order.paymentMethod] || order.paymentMethod}</small>{order.deliveryRoute && <small>Ruta de envío: {order.deliveryRoute}</small>}</div><span className={`order-status status-${order.status}`}>{order.status === 'pending' ? 'Pendiente de pago' : order.status === 'paid' ? 'Pagado' : 'Cancelado'}</span></header><div className="admin-order-items">{order.items.length ? order.items.map((item) => <div className="admin-order-line" key={`${order.id}-${item.productId}`}><span>{item.productName} <small>× {item.quantity}</small></span><strong>{currency(item.lineTotal)}</strong></div>) : <p className="order-items-missing">No se recibieron los productos de este pedido. Actualiza el backend y vuelve a cargar.</p>}</div><footer className="admin-order-footer"><span>Total del pedido <strong>{currency(order.subtotal)}</strong>{order.taxId && <small>Identificación fiscal: {order.taxId}</small>}</span>{order.status === 'pending' && <div><button className="button button-outline" type="button" onClick={() => updateOrder(order, 'cancelled')}>Cancelar pedido</button><button className="button button-dark" type="button" onClick={() => updateOrder(order, 'paid')}>Confirmar pago al retirar</button></div>}</footer></article>)}</div> : <div className="empty-panel order-empty">Aún no hay pedidos realizados desde la tienda.</div>}
+              <div className="section-heading"><div><span className="eyebrow">VENTA EN LÍNEA</span><h1>Pedidos</h1><p>Consulta los datos del cliente y el estado de cada pedido.</p></div><div className="sales-total"><span>PENDIENTES DE PAGO</span><strong>{orders.filter((order) => order.status === 'pending').length}</strong></div></div>{orders.length > 0 && <div className="sales-cleaner orders-cleaner"><label className="field"><span>Desde</span><input type="date" value={ordersRange.from} max={ordersRange.to || undefined} onChange={(event) => setOrdersRange({ ...ordersRange, from: event.target.value })} /></label><label className="field"><span>Hasta</span><input type="date" value={ordersRange.to} min={ordersRange.from || undefined} onChange={(event) => setOrdersRange({ ...ordersRange, to: event.target.value })} /></label><button className="button button-outline" type="button" onClick={() => clearOrders(false)}>Eliminar rango</button><button className="button button-outline orders-clear" type="button" onClick={() => clearOrders(true)}>Vaciar pedidos</button></div>}
+              {orders.length ? <div className="order-list">{orders.map((order) => <article className="admin-order" key={order.id}><header className="admin-order-heading"><div><span className="eyebrow">{order.orderNumber}</span><h2>{order.name}</h2><small>{order.date} · {order.email} · {order.phone}</small><small>Pago: {paymentMethodLabels[order.paymentMethod] || order.paymentMethod}</small>{order.deliveryRoute && <small>Ruta de envío: {order.deliveryRoute}</small>}</div><span className={`order-status status-${order.status}`}>{order.status === 'pending' ? 'Pendiente de pago' : order.status === 'paid' ? 'Pagado' : 'Cancelado'}</span></header><div className="admin-order-items">{order.items.length ? order.items.map((item) => <div className="admin-order-line" key={`${order.id}-${item.productId}`}><span>{item.productName} <small>× {item.quantity}</small></span><strong>{currency(item.lineTotal)}</strong></div>) : <p className="order-items-missing">No se recibieron los productos de este pedido. Actualiza el backend y vuelve a cargar.</p>}</div><footer className="admin-order-footer"><span>Total del pedido <strong>{currency(order.subtotal)}</strong>{order.taxId && <small>Identificación fiscal: {order.taxId}</small>}</span>{order.status === 'pending' && <div><button className="button button-outline" type="button" onClick={() => updateOrder(order, 'cancelled')}>Cancelar pedido</button><button className="button button-dark" type="button" onClick={() => updateOrder(order, 'paid')}>Confirmar pago al retirar</button></div>}<button className="order-delete" type="button" onClick={() => deleteOrder(order)}>Eliminar</button></footer></article>)}</div> : <div className="empty-panel order-empty">Aún no hay pedidos realizados desde la tienda.</div>}
             </>}
 
             {section === 'sales' && <>
               <div className="section-heading"><div><span className="eyebrow">PUNTO DE VENTA</span><h1>Ventas</h1><p>Registra cada movimiento y mantén las existencias al día.</p></div><div className="sales-total"><span>INGRESOS REGISTRADOS</span><strong>{currency(revenue)}</strong></div></div>
               <div className="sales-layout"><section className="work-panel sale-entry"><div className="panel-title"><div><span className="eyebrow">NUEVA OPERACIÓN</span><h2>Registrar venta</h2></div><span className="panel-icon">＋</span></div><form className="product-form" onSubmit={registerSale}><label className="field"><span>Producto</span><select value={saleForm.productId} onChange={(event) => setSaleForm({ ...saleForm, productId: event.target.value })} required><option value="">Selecciona un producto</option>{products.filter((product) => product.stock > 0).map((product) => <option key={product.id} value={product.id}>{product.name} · {product.stock} disponibles</option>)}</select></label><div className="form-columns"><label className="field"><span>Cantidad</span><input type="number" min="1" max={products.find((product) => String(product.id) === saleForm.productId)?.stock || undefined} value={saleForm.quantity} onChange={(event) => setSaleForm({ ...saleForm, quantity: event.target.value })} required /></label><label className="field"><span>Método de pago</span><select value={saleForm.method} onChange={(event) => setSaleForm({ ...saleForm, method: event.target.value })}><option>Efectivo</option><option>Tarjeta</option><option>Transferencia</option></select></label></div><label className="field"><span>Cliente <small>OPCIONAL</small></span><input value={saleForm.customer} onChange={(event) => setSaleForm({ ...saleForm, customer: event.target.value })} placeholder="Nombre del cliente" /></label><div className="sale-estimate"><span>Total de la venta</span><strong>{currency((products.find((product) => String(product.id) === saleForm.productId)?.price || 0) * Number(saleForm.quantity || 0))}</strong></div><button className="button button-dark button-wide" type="submit">Confirmar venta <span>↗</span></button></form></section>
-                <section className="work-panel sales-history"><div className="panel-title"><div><span className="eyebrow">MOVIMIENTOS</span><h2>Historial de ventas</h2></div><span className="history-count">{sales.length}</span></div>{sales.length ? <div className="sales-list">{sales.map((sale) => <article className="sale-row" key={sale.id}><span className="sale-mark">↗</span><span className="sale-details"><strong>{sale.product}</strong><small>{sale.customer || 'Venta en salón'} · {sale.method} · {sale.date}</small></span><span className="sale-quantity">× {sale.quantity}</span><strong className="sale-amount">{currency(sale.total)}</strong></article>)}</div> : <div className="empty-panel">Todavía no hay ventas registradas.</div>}</section></div>
+                <section className="work-panel sales-history"><div className="panel-title"><div><span className="eyebrow">MOVIMIENTOS</span><h2>Historial de ventas</h2></div><span className="history-count">{sales.length}</span></div><div className="sales-cleaner"><label className="field"><span>Desde</span><input type="date" value={salesRange.from} max={salesRange.to || undefined} onChange={(event) => setSalesRange({ ...salesRange, from: event.target.value })} /></label><label className="field"><span>Hasta</span><input type="date" value={salesRange.to} min={salesRange.from || undefined} onChange={(event) => setSalesRange({ ...salesRange, to: event.target.value })} /></label><button className="button button-outline" type="button" onClick={() => deleteSales(false)}>Eliminar rango</button><button className="button button-outline orders-clear" type="button" onClick={() => deleteSales(true)} disabled={!sales.length}>Vaciar historial</button></div>{sales.length ? <div className="sales-list">{sales.map((sale) => <article className="sale-row" key={sale.id}><span className="sale-mark">↗</span><span className="sale-details"><strong>{sale.product}</strong><small>{sale.customer || 'Venta en salón'} · {sale.method} · {sale.date}</small></span><span className="sale-quantity">× {sale.quantity}</span><strong className="sale-amount">{currency(sale.total)}</strong></article>)}</div> : <div className="empty-panel">Todavía no hay ventas registradas.</div>}</section></div>
             </>}
 
             {section === 'reports' && <>

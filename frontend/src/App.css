@@ -793,3 +793,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (prefers-reduced-motion: reduce) {
   .brand-logo { animation: none; transition: none; }
 }
+/* Eliminar pedidos */
+.orders-clear { margin-left: 12px; align-self: center; color: #a8453d; border-color: #e3b8b3; }
+.orders-clear:hover { background: #fbeceb; }
+.order-delete { background: none; border: 0; color: #a8453d; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 8px; }
+.order-delete:hover { color: #7e2c25; }
+.admin-order-footer { flex-wrap: wrap; gap: 8px; }
+
+/* Limpieza del historial de ventas */
+.sales-cleaner { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 0 0 18px; padding: 14px; background: #f6f3ee; border-radius: 12px; }
+.sales-cleaner .field { flex: 1 1 130px; margin: 0; }
+.sales-cleaner .button { flex: 0 0 auto; }
+.sales-cleaner .orders-clear { margin-left: 0; }
