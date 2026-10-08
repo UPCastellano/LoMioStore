@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
+import logoImage from './assets/lomio-logo.png';
 import './App.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const IMAGE_FALLBACK = 'https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=900&q=85';
+const HERO_IMAGE = 'https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=900&q=85';
+const IMAGE_FALLBACK = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 480'><rect width='400' height='480' fill='#e9eee7'/><g fill='none' stroke='#9aa896' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'><rect x='140' y='170' width='120' height='120' rx='12'/><circle cx='200' cy='230' r='14'/><path d='M140 275l40-40 30 30 20-20 30 30'/></g><text x='200' y='340' font-family='sans-serif' font-size='20' fill='#777d73' text-anchor='middle'>Sin imagen</text></svg>")}`;
 const emptyForm = () => ({ name: '', category: '', price: '', stock: '0', barcode: `LM-${Date.now().toString().slice(-8)}`, imageUrl: '' });
 const currency = (value) => new Intl.NumberFormat('es-NI', { style: 'currency', currency: import.meta.env.VITE_CURRENCY || 'NIO' }).format(Number(value) || 0);
 const paymentMethodLabels = {
@@ -80,6 +82,10 @@ async function request(path, options = {}, token = '') {
   return payload;
 }
 
+function BrandLogo({ className = '' }) {
+  return <img className={`brand-logo ${className}`.trim()} src={logoImage} alt="Lo Mío Store Online" width="912" height="345" />;
+}
+
 function Barcode({ value }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -96,6 +102,8 @@ function ProductImage({ src, alt, className = '' }) {
       className={className}
       src={src || IMAGE_FALLBACK}
       alt={alt}
+      loading="lazy"
+      referrerPolicy="no-referrer"
       onError={(event) => {
         if (event.currentTarget.src !== IMAGE_FALLBACK) event.currentTarget.src = IMAGE_FALLBACK;
       }}
@@ -141,6 +149,7 @@ function App() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [login, setLogin] = useState({ username: '', password: '' });
+  const [previewProduct, setPreviewProduct] = useState(null);
   const [saleForm, setSaleForm] = useState({ productId: '', quantity: 1, customer: '', method: 'Efectivo' });
 
   useEffect(() => {
@@ -156,6 +165,23 @@ function App() {
   }, [screen]);
 
   useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(''), 3500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!previewProduct) return undefined;
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setPreviewProduct(null); };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [previewProduct]);
+
+  useEffect(() => {
     request('/api/products')
       .then((data) => setProducts(data.map((product) => ({ ...product, price: Number(product.price), stock: Number(product.stock || 0), sold: Number(product.sold || 0) }))))
       .catch((loadError) => setError(loadError.message))
@@ -165,7 +191,6 @@ function App() {
   useEffect(() => {
     if (!token) return;
     request('/api/admin/session', {}, token)
-      .then(() => setScreen('admin'))
       .catch(() => {
         sessionStorage.removeItem('lomio-admin-token');
         setToken('');
@@ -480,7 +505,7 @@ function App() {
         <button className="back-link" type="button" onClick={() => { setScreen('store'); setError(''); }}>← Volver a la tienda</button>
         <section className="login-layout">
           <div className="login-art" aria-label="Estudio de belleza">
-            <span className="login-brand">LoMio <i>Studio</i></span>
+            <span className="login-brand"><BrandLogo className="on-dark" /></span>
             <div className="login-art-copy"><span>BEAUTY · NAILS · CARE</span><h1>El cuidado<br />también se administra.</h1></div>
             <span className="login-art-caption">ESTUDIO DE BELLEZA · 01</span>
           </div>
@@ -516,7 +541,7 @@ function App() {
   if (screen === 'cart') {
     return (
       <div className="storefront cart-screen">
-        <header className="store-header"><button className="store-brand" type="button" onClick={() => setScreen('store')}>LoMio <i>Studio</i><span>BEAUTY · NAILS · CARE</span></button><span className="checkout-step">TU COMPRA / DATOS DEL CLIENTE</span><button className="back-link" type="button" onClick={() => setScreen('store')}>Seguir viendo productos</button></header>
+        <header className="store-header"><button className="store-brand" type="button" aria-label="Volver a la tienda" onClick={() => setScreen('store')}><BrandLogo /></button><span className="checkout-step">TU COMPRA / DATOS DEL CLIENTE</span><button className="back-link" type="button" onClick={() => setScreen('store')}>Seguir viendo productos</button></header>
         <main className="checkout-content">
           <div className="checkout-heading"><span className="eyebrow">LOMIO, PARA TI</span><h1>Tu carrito</h1><p>Revisa tu selección y déjanos tus datos para preparar el pedido.</p></div>
           {error && <div className="toast-message error-toast checkout-error" role="alert">{error}<button type="button" aria-label="Cerrar mensaje" onClick={() => setError('')}>×</button></div>}
@@ -554,7 +579,7 @@ function App() {
     return (
       <div className="admin-shell">
         <aside className="admin-sidebar">
-          <button className="brand-lockup" type="button" onClick={() => setScreen('store')}><span className="brand-symbol">L</span><span>LoMio <i>Studio</i><small>CONTROL DEL SALÓN</small></span></button>
+          <button className="brand-lockup" type="button" onClick={() => setScreen('store')}><span className="brand-logo-wrap"><BrandLogo /><small>CONTROL DEL SALÓN</small></span></button>
           <span className="side-label">GESTIÓN</span>
           <nav className="side-nav" aria-label="Secciones administrativas">
             {navItems.map((item) => <button key={item.id} type="button" className={section === item.id ? 'selected' : ''} onClick={() => { setSection(item.id); setError(''); setNotice(''); }}><span>{item.symbol}</span>{item.label}{item.id === 'inventory' && <small>{products.length}</small>}</button>)}
@@ -563,7 +588,7 @@ function App() {
         </aside>
 
         <main className="admin-main">
-          <header className="admin-topbar"><button className="mobile-brand" type="button" onClick={() => setScreen('store')}>LoMio <i>Studio</i></button><span>ADMINISTRACIÓN <b>/</b> {navItems.find((item) => item.id === section)?.label.toUpperCase()}</span><button className="store-link" type="button" onClick={() => setScreen('store')}>Ver tienda <span>↗</span></button></header>
+          <header className="admin-topbar"><button className="mobile-brand" type="button" aria-label="Ir a la tienda" onClick={() => setScreen('store')}><BrandLogo /></button><span>ADMINISTRACIÓN <b>/</b> {navItems.find((item) => item.id === section)?.label.toUpperCase()}</span><button className="store-link" type="button" onClick={() => setScreen('store')}>Ver tienda <span>↗</span></button></header>
           <div className="admin-content">
             {notice && <div className="toast-message" role="status">{notice}<button type="button" aria-label="Cerrar mensaje" onClick={() => setNotice('')}>×</button></div>}
             {error && <div className="toast-message error-toast" role="alert">{error}<button type="button" aria-label="Cerrar mensaje" onClick={() => setError('')}>×</button></div>}
@@ -612,15 +637,26 @@ function App() {
 
   return (
     <div className="storefront">
-      {notice && <div className="store-notice" role="status">{notice}<button type="button" aria-label="Cerrar mensaje" onClick={() => setNotice('')}>×</button></div>}
+      {notice && <div className="store-notice" role="status"><span className="notice-icon" aria-hidden="true">✓</span><span className="notice-text">{notice}</span><button type="button" aria-label="Cerrar mensaje" onClick={() => setNotice('')}>×</button></div>}
       {error && <div className="store-notice error-toast" role="alert">{error}<button type="button" aria-label="Cerrar mensaje" onClick={() => setError('')}>×</button></div>}
-      <header className="store-header"><a className="store-brand" href="#inicio" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>LoMio <i>Studio</i><span>BEAUTY · NAILS · CARE</span></a><nav className="store-nav"><a href="#coleccion">Colección</a><a href="#nosotros">El estudio</a></nav><div className="store-header-actions"><button className="cart-entry" type="button" onClick={() => { setScreen('cart'); setError(''); }}>Carrito <span>{cartCount}</span></button><button className="admin-entry" type="button" onClick={() => { setScreen('login'); setError(''); }}>Área privada <span>↗</span></button></div></header>
+      <header className="store-header"><a className="store-brand" href="#inicio" aria-label="Lo Mío Store Online, ir al inicio" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BrandLogo /></a><nav className="store-nav"><a href="#coleccion">Colección</a><a href="#nosotros">El estudio</a></nav><div className="store-header-actions"><button className="cart-entry" type="button" aria-label={`Carrito, ${cartCount} ${cartCount === 1 ? 'producto' : 'productos'}`} onClick={() => { setScreen('cart'); setError(''); setNotice(''); }}><svg className="cart-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 8.5h11l1 11.5h-13z" /><path d="M9 8.5V7a3 3 0 0 1 6 0v1.5" /></svg><strong className="cart-label">Carrito</strong><span key={cartCount} className={`cart-badge${cartCount ? ' ' : ' is-empty'}`}>{cartCount}</span></button><button className="admin-entry" type="button" onClick={() => { setScreen(token ? 'admin' : 'login'); setError(''); }}>Área privada <span>↗</span></button></div></header>
       <main>
-        <section className="store-hero" id="inicio"><div className="hero-visual"><ProductImage src={IMAGE_FALLBACK} alt="Productos seleccionados para el cuidado de manos y piel" className="hero-photo" /><span className="hero-photo-tag">RITUALES PARA TI</span><span className="hero-index">LOMIO STUDIO <b>·</b> 2026</span></div><div className="hero-message"><span className="eyebrow">TU MOMENTO, TU ESTILO</span><h1>Belleza que<br /><i>se siente tuya.</i></h1><p>Pequeños rituales, tonos que hablan por ti y productos elegidos con cariño en nuestro estudio.</p><a className="button button-dark" href="#coleccion">Descubrir productos <span>↓</span></a><span className="hero-note">SELECCIÓN DEL ESTUDIO <b>01 — 04</b></span></div></section>
-        <section className="collection-section" id="coleccion"><div className="collection-heading"><div><span className="eyebrow">LOMIO, PARA LLEVAR</span><h2>Elige tu próximo <i>favorito.</i></h2></div><span className="collection-count">{visibleProducts.length.toString().padStart(2, '0')} PRODUCTOS</span></div>{productsLoading ? <div className="store-empty" aria-live="polite">Preparando la colección…</div> : visibleProducts.length ? <div className="store-product-grid">{visibleProducts.map((product, index) => <article className="store-product" key={product.id}><div className="store-product-image"><ProductImage src={product.image} alt={product.name} /><span>{String(index + 1).padStart(2, '0')}</span><small>{product.category || 'LOMIO STUDIO'}</small></div><div className="store-product-details"><h3>{product.name}</h3><span className="store-stock">{product.stock} disponibles</span><strong>{currency(product.price)}</strong><button className="add-cart-button" type="button" onClick={() => addToCart(product)}>Agregar al carrito <span>＋</span></button></div></article>)}</div> : <div className="store-empty">{error ? 'No pudimos cargar la colección. Revisa tu conexión e inténtalo de nuevo.' : 'La colección se está preparando. Vuelve pronto.'}</div>}</section>
+        <section className="store-hero" id="inicio"><div className="hero-visual"><ProductImage src={HERO_IMAGE} alt="Productos seleccionados para el cuidado de manos y piel" className="hero-photo" /><span className="hero-photo-tag">RITUALES PARA TI</span><span className="hero-index">LOMIO STUDIO <b>·</b> 2026</span></div><div className="hero-message"><span className="eyebrow">TU MOMENTO, TU ESTILO</span><h1>Belleza que<br /><i>se siente tuya.</i></h1><p>Pequeños rituales, tonos que hablan por ti y productos elegidos con cariño en nuestro estudio.</p><a className="button button-dark" href="#coleccion">Descubrir productos <span>↓</span></a><span className="hero-note">SELECCIÓN DEL ESTUDIO <b>01 — 04</b></span></div></section>
+        <section className="collection-section" id="coleccion"><div className="collection-heading"><div><span className="eyebrow">LOMIO, PARA LLEVAR</span><h2>Elige tu próximo <i>favorito.</i></h2></div><span className="collection-count">{visibleProducts.length.toString().padStart(2, '0')} PRODUCTOS</span></div>{productsLoading ? <div className="store-empty" aria-live="polite">Preparando la colección…</div> : visibleProducts.length ? <div className="store-product-grid">{visibleProducts.map((product, index) => <article className="store-product" key={product.id}><div className="store-product-image"><button className="image-zoom" type="button" aria-label={`Ver foto ampliada de ${product.name}`} onClick={() => setPreviewProduct(product)}><ProductImage src={product.image} alt={product.name} /></button><span>{String(index + 1).padStart(2, '0')}</span><small>{product.category || 'LOMIO STUDIO'}</small></div><div className="store-product-details"><h3>{product.name}</h3><span className="store-stock">{product.stock} disponibles</span><strong>{currency(product.price)}</strong><button className="add-cart-button" type="button" onClick={() => addToCart(product)}>Agregar al carrito <span>＋</span></button></div></article>)}</div> : <div className="store-empty">{error ? 'No pudimos cargar la colección. Revisa tu conexión e inténtalo de nuevo.' : 'La colección se está preparando. Vuelve pronto.'}</div>}</section>
         <section className="studio-note" id="nosotros"><span className="eyebrow">UN ESPACIO PARA SENTIRTE BIEN</span><p>En LoMio Studio, cada detalle empieza con <i>cuidarte.</i></p><span>BEAUTY · NAILS · CARE</span></section>
       </main>
-      <footer className="store-footer"><a className="store-brand" href="#inicio">LoMio <i>Studio</i><span>BEAUTY · NAILS · CARE</span></a><span>Hecho para tu momento.</span><button type="button" onClick={() => { setScreen('login'); setError(''); }}>Acceso administrativo ↗</button></footer>
+      {previewProduct && (
+        <div className="lightbox" role="dialog" aria-modal="true" aria-label={`Foto de ${previewProduct.name}`} onMouseDown={(event) => { if (event.target === event.currentTarget) setPreviewProduct(null); }}>
+          <figure className="lightbox-card">
+            <button className="lightbox-close" type="button" aria-label="Cerrar" autoFocus onClick={() => setPreviewProduct(null)}>×</button>
+            <div className="lightbox-image"><ProductImage src={previewProduct.image} alt={previewProduct.name} /></div>
+            <figcaption>
+              <div><small>{previewProduct.category || 'LOMIO STUDIO'}</small><h3>{previewProduct.name}</h3><strong>{currency(previewProduct.price)}</strong></div>
+              <button className="button button-dark" type="button" onClick={() => { addToCart(previewProduct); setPreviewProduct(null); }}>Agregar al carrito</button>
+            </figcaption>
+          </figure>
+        </div>
+      )}      <footer className="store-footer"><a className="store-brand" href="#inicio" aria-label="Lo Mío Store Online, ir al inicio"><BrandLogo /></a><span>Hecho para tu momento.</span><button type="button" onClick={() => { setScreen(token ? 'admin' : 'login'); setError(''); }}>Acceso administrativo ↗</button></footer>
     </div>
   );
 }

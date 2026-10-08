@@ -66,6 +66,22 @@ const resolveUploadedImage = async (file) => {
   }
   return `${backendUrl}/uploads/${file.filename}`;
 };
+// Extrae el ID del archivo de Drive desde una URL guardada por esta app.
+const driveFileIdFromUrl = (url) => {
+  const match = /^https:\/\/lh3\.googleusercontent\.com\/d\/([\w-]+)$/.exec(String(url || ''));
+  return match ? match[1] : null;
+};
+
+// Borra la imagen de Drive si la URL le pertenece; un fallo aquí nunca debe impedir la operación principal.
+const deleteStoredImage = async (url) => {
+  const fileId = driveFileIdFromUrl(url);
+  if (!drive || !fileId) return;
+  try {
+    await drive.files.delete({ fileId });
+  } catch (err) {
+    if (err.code !== 404) console.error('No se pudo borrar la imagen de Drive:', err.message);
+  }
+};
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '5mb' }));
 app.use('/uploads', express.static(uploadsDir));
@@ -326,6 +342,12 @@ async function updateProduct(id, productData) {
   );
 
   return rows[0] || null;
+}
+
+async function getProductImage(id) {
+  if (!pool) return memoryProducts.find(product => Number(product.id) === Number(id))?.image || null;
+  const { rows } = await pool.query('SELECT image FROM products WHERE id = $1', [id]);
+  return rows[0]?.image || null;
 }
 
 async function deleteProduct(id) {
@@ -972,8 +994,9 @@ app.put('/api/products/:id', requireAdmin, upload.single('image'), async (req, r
       return res.status(400).json({ error: 'Nombre y precio son obligatorios' });
     }
 
-    const productImage = (await resolveUploadedImage(req.file))
-      || imageUrl || 'https://via.placeholder.com/150';
+    const previousImage = await getProductImage(req.params.id);
+    const uploadedImage = await resolveUploadedImage(req.file);
+    const productImage = uploadedImage || imageUrl || 'https://via.placeholder.com/150';
 
     const updated = await updateProduct(req.params.id, {
       name,
@@ -986,8 +1009,11 @@ app.put('/api/products/:id', requireAdmin, upload.single('image'), async (req, r
     });
 
     if (!updated) {
+      await deleteStoredImage(uploadedImage);
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
+
+    if (previousImage && previousImage !== productImage) await deleteStoredImage(previousImage);
 
     res.json(updated);
   } catch (err) {
@@ -998,10 +1024,12 @@ app.put('/api/products/:id', requireAdmin, upload.single('image'), async (req, r
 
 app.delete('/api/products/:id', requireAdmin, async (req, res) => {
   try {
+    const image = await getProductImage(req.params.id);
     const deleted = await deleteProduct(req.params.id);
     if (!deleted) {
       return res.status(404).json({ message: 'Producto no encontrado' });
     }
+    await deleteStoredImage(image);
     res.json({ message: 'Producto eliminado' });
   } catch (err) {
     res.status(500).json({ error: err.message });
