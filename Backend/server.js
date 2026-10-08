@@ -94,6 +94,10 @@ const pool = process.env.NODE_ENV !== 'test' && process.env.POSTGRESQL_ADDON_HOS
       user: process.env.POSTGRESQL_ADDON_USER,
       password: process.env.POSTGRESQL_ADDON_PASSWORD,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      // El plan gratuito de Clever Cloud permite muy pocas conexiones por rol.
+      max: Number(process.env.POSTGRESQL_POOL_MAX) || 2,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 15000,
     })
   : null;
 
